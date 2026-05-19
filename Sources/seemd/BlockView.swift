@@ -22,7 +22,6 @@ struct BlockView: View {
     private var bodyColor: Color { Color(hex: palette.bodyText, fallback: .primary) }
     private var secondaryColor: Color { Color(hex: palette.secondaryText, fallback: .secondary) }
     private var separatorColor: Color { Color(hex: palette.separator, fallback: Color.gray.opacity(0.3)) }
-    private var codeBG: Color { Color(hex: palette.codeBackground, fallback: Color.gray.opacity(0.12)) }
 
     var body: some View {
         content
