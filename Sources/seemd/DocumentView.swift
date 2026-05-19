@@ -6,6 +6,13 @@ import SeemdCore
 /// editor. Keeps the same `RenderContext` + highlight-closure perf model: it
 /// observes the model only for `blocks`/scroll state, never feeding the heavy
 /// object into `BlockView`.
+///
+/// The scroll container is an app-owned `NSScrollView` (`HostedScrollView`),
+/// NOT a SwiftUI `ScrollView`: on macOS 14 a SwiftUI `ScrollView` no longer
+/// exposes its backing `NSScrollView`, which broke the continuous
+/// editor↔preview sync. Hosting the same SwiftUI block content in an
+/// `NSScrollView` this app owns makes the sync deterministic (the per-window
+/// `ScrollSyncCoordinator` observes/drives the real clip view directly).
 struct PreviewPane: View {
     @ObservedObject var model: DocumentModel
 
@@ -40,26 +47,18 @@ struct PreviewPane: View {
             model.highlightedTokens(code: code, language: language,
                                     completion: completion)
         }
-        return ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 14) {
-                    ForEach(model.blocks.indices, id: \.self) { i in
-                        BlockView(block: model.blocks[i],
-                                  context: context,
-                                  highlight: highlight)
-                    }
+        return HostedScrollView(
+            maxContentWidth: maxContentWidth,
+            backgroundHex: model.palette.windowBackground,
+            coordinator: model.scrollSync
+        ) {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                ForEach(model.blocks.indices, id: \.self) { i in
+                    BlockView(block: model.blocks[i],
+                              context: context,
+                              highlight: highlight)
                 }
-                .padding(.horizontal, 32)
-                .padding(.vertical, 28)
-                .frame(maxWidth: maxContentWidth, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .center)
             }
-            .coordinateSpace(name: "docScroll")
-            .background(Color(hex: model.palette.windowBackground, fallback: Color(NSColor.textBackgroundColor)))
-            // Capture the NSScrollView backing this SwiftUI ScrollView and
-            // hand it to the per-window coordinator for continuous offset
-            // sync. Inside the ScrollView so `enclosingScrollView` resolves.
-            .background(ScrollViewCapture(coordinator: model.scrollSync))
             .onPreferenceChange(HeadingFramePreferenceKey.self) { frames in
                 // Feed per-heading content-Y to the continuous coordinator
                 // (editor↔preview offset interpolation) AND keep the existing
@@ -67,12 +66,17 @@ struct PreviewPane: View {
                 model.scrollSync.updatePreviewHeadingFrames(frames)
                 updateActiveHeading(frames)
             }
-            .onChange(of: model.scrollTarget) {
-                guard let target = model.scrollTarget else { return }
-                suppressSpyUntil = Date().addingTimeInterval(0.25)
-                proxy.scrollTo(target, anchor: .top)
-                if model.scrollTarget != nil { model.scrollTarget = nil }
-            }
+        }
+        .onChange(of: model.scrollTarget) {
+            guard let target = model.scrollTarget else { return }
+            // Preview-only mode (TOC sidebar click) + live-reload scroll
+            // preservation. The hosted NSScrollView is scrolled to the
+            // heading's content-Y via the same preview heading-Y table the
+            // continuous sync uses. NOT the live editor↔preview sync (that
+            // path no longer reads `scrollTarget`).
+            suppressSpyUntil = Date().addingTimeInterval(0.25)
+            model.scrollSync.scrollPreview(toHeadingSlug: target)
+            if model.scrollTarget != nil { model.scrollTarget = nil }
         }
     }
 

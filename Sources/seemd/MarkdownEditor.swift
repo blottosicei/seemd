@@ -162,6 +162,11 @@ struct MarkdownEditor: NSViewRepresentable {
             let glyphRange = lm.glyphRange(
                 forCharacterRange: NSRange(location: safe, length: 0),
                 actualCharacterRange: nil)
+            // Force layout up to this glyph: NSLayoutManager lays out lazily,
+            // so without this a heading far below the viewport returns (0,0)
+            // and large-doc sync collapses to forward-filled zeros until the
+            // user scrolls near it. ensureLayout makes the Y accurate up-front.
+            lm.ensureLayout(forGlyphRange: glyphRange)
             let rect = lm.boundingRect(forGlyphRange: glyphRange, in: tc)
             return rect.origin.y + tv.textContainerInset.height
         }

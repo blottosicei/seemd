@@ -21,5 +21,6 @@ allCases += themeCases()          // US-007
 allCases += searchZoomCases()     // US-009 (pure logic)
 allCases += bookmarkCases()       // US-005 (bookmark helper)
 allCases += scrollSpyCases()      // US-008
+allCases += scrollSyncMathCases()      // US-S1
 
 exit(runSelfTests(allCases))
