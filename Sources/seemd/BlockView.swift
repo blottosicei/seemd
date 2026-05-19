@@ -1,23 +1,18 @@
 import SwiftUI
+import AppKit
 import SeemdCore
 
 /// Renders a single `RenderBlock` with GitHub-style typography. Recurses for
 /// nested containers (lists, blockquotes, task items).
 struct BlockView: View {
     let block: RenderBlock
-    @ObservedObject var model: DocumentModel
+    let context: RenderContext
+    let highlight: HighlightProvider
 
-    private var palette: ThemePalette { model.palette }
-    private var baseSize: CGFloat { 16.0 * CGFloat(model.zoom) }
+    private var palette: ThemePalette { context.palette }
+    private var baseSize: CGFloat { context.baseFontSize }
 
-    private var renderer: InlineRenderer {
-        InlineRenderer(
-            palette: palette,
-            baseFontSize: baseSize,
-            searchQuery: model.searchQuery,
-            baseDirectory: model.documentDirectory
-        )
-    }
+    private var renderer: InlineRenderer { context.renderer }
 
     private var bodyColor: Color { Color(hex: palette.bodyText, fallback: .primary) }
     private var secondaryColor: Color { Color(hex: palette.secondaryText, fallback: .secondary) }
@@ -39,7 +34,8 @@ struct BlockView: View {
             paragraphView(inlines)
 
         case let .codeBlock(language, code):
-            CodeBlockView(code: code, language: language, model: model)
+            CodeBlockView(code: code, language: language,
+                          context: context, highlight: highlight)
 
         case let .blockQuote(blocks):
             blockQuoteView(blocks)
@@ -64,6 +60,7 @@ struct BlockView: View {
 
     // MARK: - Heading
 
+    /// GitHub Markdown CSS scale (what VS Code's preview uses): h1 2em … h6 .85em.
     private func headingScale(_ level: Int) -> CGFloat {
         switch level {
         case 1: return 2.0
@@ -75,20 +72,33 @@ struct BlockView: View {
         }
     }
 
+    /// Stronger weight contrast than GitHub's flat 600 so the hierarchy reads
+    /// clearly: H1/H2 bold, H3–H6 semibold (body stays regular).
+    private func headingWeight(_ level: Int) -> Font.Weight {
+        level <= 2 ? .bold : .semibold
+    }
+
     @ViewBuilder
     private func headingView(level: Int, inlines: [InlineNode]) -> some View {
         let size = baseSize * headingScale(level)
+        // Build a renderer at the heading size+weight so they are baked into
+        // the AttributedString runs (run-level font overrides .font(), which is
+        // why headings previously rendered at body size).
+        let hRenderer = context.renderer(fontSize: size,
+                                         weight: headingWeight(level))
+        let color = level >= 6 ? secondaryColor : bodyColor
         VStack(alignment: .leading, spacing: 4) {
-            Text(renderer.attributed(inlines))
-                .font(.system(size: size, weight: .semibold))
-                .foregroundStyle(bodyColor)
+            Text(hRenderer.attributed(inlines))
+                .foregroundStyle(color)
+                .lineSpacing(size * 0.12)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
             if level <= 2 {
                 Divider().overlay(separatorColor)
             }
         }
-        .padding(.top, level <= 2 ? 12 : 8)
-        .padding(.bottom, 2)
+        .padding(.top, level == 1 ? 24 : level == 2 ? 20 : level <= 3 ? 14 : 10)
+        .padding(.bottom, level <= 2 ? 6 : 2)
     }
 
     // MARK: - Paragraph
@@ -118,7 +128,7 @@ struct BlockView: View {
                 .frame(width: 3)
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, b in
-                    BlockView(block: b, model: model)
+                    BlockView(block: b, context: context, highlight: highlight)
                 }
             }
             .padding(.leading, 12)
@@ -137,7 +147,7 @@ struct BlockView: View {
                     marker(ordered: ordered, index: idx, start: start, itemBlocks: itemBlocks)
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(itemBlocks.enumerated()), id: \.offset) { _, b in
-                            BlockView(block: b, model: model)
+                            BlockView(block: b, context: context, highlight: highlight)
                         }
                     }
                 }
@@ -173,7 +183,7 @@ struct BlockView: View {
                 .font(.system(size: baseSize))
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { _, b in
-                    BlockView(block: b, model: model)
+                    BlockView(block: b, context: context, highlight: highlight)
                 }
             }
         }
@@ -185,12 +195,13 @@ struct BlockView: View {
 private struct CodeBlockView: View {
     let code: String
     let language: String?
-    @ObservedObject var model: DocumentModel
+    let context: RenderContext
+    let highlight: HighlightProvider
     @State private var tokens: [HighlightToken] = []
 
-    private var baseSize: CGFloat { 16.0 * CGFloat(model.zoom) * 0.92 }
-    private var codeBG: Color { Color(hex: model.palette.codeBackground, fallback: Color.gray.opacity(0.12)) }
-    private var separator: Color { Color(hex: model.palette.separator, fallback: Color.gray.opacity(0.3)) }
+    private var baseSize: CGFloat { context.baseFontSize * 0.92 }
+    private var codeBG: Color { Color(hex: context.palette.codeBackground, fallback: Color.gray.opacity(0.12)) }
+    private var separator: Color { Color(hex: context.palette.separator, fallback: Color.gray.opacity(0.3)) }
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -206,7 +217,7 @@ private struct CodeBlockView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .padding(.vertical, 4)
-        .task(id: TaskKey(code: code, dark: model.effectiveTheme == .dark)) {
+        .task(id: TaskKey(code: code, dark: context.isDark)) {
             await refresh()
         }
     }
@@ -216,7 +227,7 @@ private struct CodeBlockView: View {
     private var highlighted: AttributedString {
         guard !tokens.isEmpty else {
             var a = AttributedString(code)
-            a.foregroundColor = Color(hex: model.palette.bodyText, fallback: .primary)
+            a.foregroundColor = Color(hex: context.palette.bodyText, fallback: .primary)
             return a
         }
         var result = AttributedString()
@@ -230,7 +241,7 @@ private struct CodeBlockView: View {
 
     private func refresh() async {
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            model.highlightedTokens(code: code, language: language) { t in
+            highlight(code, language) { t in
                 self.tokens = t
                 cont.resume()
             }
@@ -239,7 +250,7 @@ private struct CodeBlockView: View {
 
     /// Map Splash token kinds to theme-aware colors.
     private func color(for kind: String) -> Color {
-        let dark = model.effectiveTheme == .dark
+        let dark = context.isDark
         switch kind {
         case "keyword":     return dark ? Color(hex: "#FF7AB2")! : Color(hex: "#CF222E")!
         case "string":      return dark ? Color(hex: "#A5D6FF")! : Color(hex: "#0A3069")!
@@ -250,19 +261,97 @@ private struct CodeBlockView: View {
         case "property":    return dark ? Color(hex: "#79C0FF")! : Color(hex: "#0550AE")!
         case "dotAccess":   return dark ? Color(hex: "#79C0FF")! : Color(hex: "#0550AE")!
         case "preprocessing": return dark ? Color(hex: "#FFA657")! : Color(hex: "#953800")!
-        default:            return Color(hex: model.palette.bodyText, fallback: .primary)
+        default:            return Color(hex: context.palette.bodyText, fallback: .primary)
         }
     }
 }
 
 // MARK: - Table
 
+/// Notion-style table with explicit per-column widths and draggable dividers.
+///
+/// This view is a LEAF: it is the only place that observes `TableLayoutStore`
+/// (via `@EnvironmentObject`). Width drags re-render this `TableView` only — the
+/// store never propagates into `BlockView`/`DocumentView`, and its keys are
+/// derived from immutable table content, so there is no scroll-spy / render
+/// feedback loop. `RenderContext` is untouched (width is layout, not a
+/// rendering input).
 private struct TableView: View {
     let header: [[InlineNode]]
     let rows: [[[InlineNode]]]
     let alignments: [ColumnAlignment]
     let renderer: InlineRenderer
     let separator: Color
+
+    @EnvironmentObject private var layout: TableLayoutStore
+
+    // Resize constraints / divider geometry.
+    private let minColumnWidth: CGFloat = 48
+    private let maxColumnWidth: CGFloat = 800
+    private let dividerHitWidth: CGFloat = 8
+    /// Generous cap for the auto (no-wrap) default width so only pathologically
+    /// long cells ever wrap; normal content keeps its natural single-line width
+    /// and the table scrolls horizontally if the total exceeds the viewport.
+    private let maxNaturalWidth: CGFloat = 720
+    /// Horizontal cell padding (12 left + 12 right) plus a small anti-clip fudge.
+    private let cellPadding: CGFloat = 24 + 4
+
+    private var columnCount: Int { header.count }
+
+    /// Stable key derived from immutable table content: column count + joined
+    /// header plaintext + row count. Survives LazyVStack recycling and tab
+    /// switches; content-derived so it cannot cause a feedback loop.
+    private var tableKey: String {
+        let headerText = header
+            .map { String(renderer.attributed($0).characters) }
+            .joined(separator: "\u{1F}")
+        return "\(columnCount)\u{1E}\(headerText)\u{1E}\(rows.count)"
+    }
+
+    /// Measured single-line width of `s` in the cell's actual font. Uses real
+    /// text metrics (not a per-character estimate) so CJK/Korean full-width
+    /// glyphs are sized correctly and don't get force-wrapped.
+    private func textWidth(_ s: String, header: Bool) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: renderer.baseFontSize,
+                                     weight: header ? .semibold : .regular)
+        // Widest line if the cell happens to contain hard breaks.
+        let widest = s.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { (String($0) as NSString)
+                .size(withAttributes: [.font: font]).width }
+            .max() ?? 0
+        return ceil(widest)
+    }
+
+    /// Default width = the column's natural no-wrap width (widest cell), so
+    /// cells never wrap by default. Only a pathologically long cell is capped
+    /// (`maxNaturalWidth`); overflow is handled by horizontal scrolling, never
+    /// by shrinking columns into wrapping.
+    private func defaultWidth(col: Int) -> CGFloat {
+        func cellWidth(_ nodes: [InlineNode], header: Bool) -> CGFloat {
+            textWidth(String(renderer.attributed(nodes).characters),
+                      header: header)
+        }
+        var natural: CGFloat = col < header.count
+            ? cellWidth(header[col], header: true) : 0
+        for row in rows where col < row.count {
+            natural = max(natural, cellWidth(row[col], header: false))
+        }
+        let target = natural + cellPadding
+        return min(max(target, minColumnWidth + 40), maxNaturalWidth)
+    }
+
+    private var defaultWidths: [CGFloat] {
+        (0..<columnCount).map { defaultWidth(col: $0) }
+    }
+
+    /// Current widths from the store, or the computed defaults.
+    private var widths: [CGFloat] {
+        if let stored = layout.widths(for: tableKey),
+           stored.count == columnCount {
+            return stored
+        }
+        return defaultWidths
+    }
 
     private func alignment(_ col: Int) -> Alignment {
         guard col < alignments.count else { return .leading }
@@ -274,34 +363,154 @@ private struct TableView: View {
     }
 
     var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
-            GridRow {
-                ForEach(Array(header.enumerated()), id: \.offset) { col, cell in
-                    cellView(cell, col: col, header: true)
-                }
-            }
-            Divider().overlay(separator)
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                GridRow {
-                    ForEach(Array(row.enumerated()), id: \.offset) { col, cell in
-                        cellView(cell, col: col, header: false)
+        let cols = widths
+        ScrollView(.horizontal, showsIndicators: true) {
+            VStack(alignment: .leading, spacing: 0) {
+                rowView(cells: header, widths: cols, header: true)
+                Divider().overlay(separator)
+                ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
+                    rowView(cells: row, widths: cols, header: false)
+                    if idx < rows.count - 1 {
+                        Divider().overlay(separator.opacity(0.5))
                     }
                 }
             }
+            .overlay(alignment: .topLeading) {
+                dividerOverlay(widths: cols)
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(separator, lineWidth: 1)
+                    .allowsHitTesting(false)
+            )
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: 6).stroke(separator, lineWidth: 1)
-        )
         .padding(.vertical, 4)
     }
 
-    private func cellView(_ cell: [InlineNode], col: Int, header: Bool) -> some View {
-        Text(renderer.attributed(cell))
-            .fontWeight(header ? .semibold : .regular)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity, alignment: alignment(col))
-            .textSelection(.enabled)
+    @ViewBuilder
+    private func rowView(cells: [[InlineNode]], widths cols: [CGFloat],
+                         header: Bool) -> some View {
+        HStack(spacing: 0) {
+            ForEach(0..<columnCount, id: \.self) { col in
+                Text(col < cells.count
+                     ? renderer.attributed(cells[col]) : AttributedString())
+                    .fontWeight(header ? .semibold : .regular)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .frame(width: cols[col], alignment: alignment(col))
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// Thin (1pt visible, ~8pt hit) draggable dividers between columns, laid
+    /// out positionally (no offset math, no ScrollView gesture conflict). Drag
+    /// adjusts the LEFT column's width live; double-click resets it.
+    @ViewBuilder
+    private func dividerOverlay(widths cols: [CGFloat]) -> some View {
+        HStack(spacing: 0) {
+            ForEach(0..<columnCount, id: \.self) { col in
+                Color.clear
+                    .frame(width: cols[col])
+                    .frame(maxHeight: .infinity)
+                    .overlay(alignment: .trailing) {
+                        // A handle on every column boundary INCLUDING the
+                        // table's right outer edge (last column).
+                        ColumnDivider(
+                            color: separator,
+                            hitWidth: dividerHitWidth,
+                            currentWidth: cols[col],
+                            onResize: { newWidth in
+                                setColumnWidth(col: col, to: newWidth,
+                                               base: cols)
+                            },
+                            onReset: { resetWidth(col: col) }
+                        )
+                        // Straddle the column boundary so the hit area is
+                        // centered on the visible seam.
+                        .offset(x: dividerHitWidth / 2)
+                    }
+            }
+        }
+    }
+
+    private func setColumnWidth(col: Int, to newWidth: CGFloat,
+                                base: [CGFloat]) {
+        guard col < base.count else { return }
+        var next = base
+        next[col] = min(max(newWidth, minColumnWidth), maxColumnWidth)
+        layout.setWidths(next, for: tableKey)
+    }
+
+    private func resetWidth(col: Int) {
+        var next = widths
+        guard col < next.count else { return }
+        next[col] = defaultWidth(col: col)
+        layout.setWidths(next, for: tableKey)
+    }
+}
+
+/// A single draggable column divider: 1pt visible line inside an ~8pt hit area,
+/// resize cursor on hover, live drag, double-click reset.
+private struct ColumnDivider: View {
+    let color: Color
+    let hitWidth: CGFloat
+    /// The column's current width, snapshotted at drag start.
+    let currentWidth: CGFloat
+    /// Absolute new width for the column (already mouse-tracked).
+    let onResize: (CGFloat) -> Void
+    let onReset: () -> Void
+
+    /// Column width captured at gesture start; new width = start + global
+    /// translation, so the line tracks the mouse 1:1 and never drifts even as
+    /// the divider itself moves with the growing column.
+    @State private var startWidth: CGFloat?
+    /// Guards `NSCursor` push/pop so they stay balanced across rebuilds.
+    @State private var cursorPushed = false
+
+    var body: some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: hitWidth)
+            .frame(maxHeight: .infinity)
+            .overlay(
+                Rectangle()
+                    .fill(color)
+                    .frame(width: 1)
+            )
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    if !cursorPushed {
+                        NSCursor.resizeLeftRight.push()
+                        cursorPushed = true
+                    }
+                case .ended:
+                    if cursorPushed {
+                        NSCursor.pop()
+                        cursorPushed = false
+                    }
+                }
+            }
+            // High priority so the drag wins over the enclosing horizontal
+            // ScrollView's pan gesture. Global coordinate space so translation
+            // is the raw pointer delta, unaffected by this divider moving as
+            // the column grows (the cause of the runaway drift/jitter).
+            .highPriorityGesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { value in
+                        let base = startWidth ?? currentWidth
+                        if startWidth == nil { startWidth = base }
+                        onResize(base + value.translation.width)
+                    }
+                    .onEnded { _ in startWidth = nil }
+            )
+            .onTapGesture(count: 2) { onReset() }
+            .onDisappear {
+                if cursorPushed { NSCursor.pop(); cursorPushed = false }
+            }
     }
 }
 

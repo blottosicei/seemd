@@ -5,6 +5,10 @@ import SeemdCore
 /// per-window `DocumentModel` and applies the resolved theme.
 struct RootView: View {
     @StateObject private var model = DocumentModel()
+    /// Per-window store for resizable table column widths. Shared with all
+    /// `TableView`s in this window via `.environmentObject`; only tables
+    /// observe it, so it cannot trigger block-tree re-renders.
+    @StateObject private var tableLayout = TableLayoutStore()
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
@@ -20,16 +24,25 @@ struct RootView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            TOCSidebar(model: model)
-                .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 360)
-        } detail: {
-            DocumentView(model: model)
-                .navigationTitle(model.documentTitle)
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Color(hex: model.palette.separator,
+                            fallback: Color.gray.opacity(0.3)))
+                .frame(height: 1)
+            NavigationSplitView(columnVisibility: $columnVisibility) {
+                TOCSidebar(model: model)
+                    .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 360)
+            } detail: {
+                DocumentView(model: model)
+                    .navigationTitle(model.documentTitle)
+                    .navigationSubtitle(model.documentSubtitle)
+            }
+            .navigationSplitViewStyle(.balanced)
         }
-        .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 640, minHeight: 480)
+        .background(WindowAccessor())
         .environmentObject(model)
+        .environmentObject(tableLayout)
         .preferredColorScheme(model.forcedColorScheme)
         .onAppear {
             model.updateSystemAppearance(isDark: systemColorScheme == .dark)

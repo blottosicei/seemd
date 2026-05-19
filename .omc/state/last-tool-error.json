@@ -1,7 +1,0 @@
-{
-  "tool_name": "Bash",
-  "tool_input_preview": "{\"command\":\"swift build 2>&1\",\"timeout\":120000,\"description\":\"Build the project to check for errors\"}",
-  "error": "Exit code 1\nwarning: could not determine XCTest paths: terminated(1): /usr/bin/xcrun --sdk macosx --show-sdk-platform-path output:\n    xcrun: error: unable to lookup item 'PlatformPath' from command line tools installation\n    xcrun: error: unable to lookup item 'PlatformPath' in SDK '/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk'\n    \n[0/1] Planning build\nBuilding for debugging...\n[0/10] Write sources\n[3/10] Write swift-version--1AB21518FC5DEDBE.txt\n[5/14] Compiling SeemdCore BookmarkStor...",
-  "timestamp": "2026-05-19T03:17:33.634Z",
-  "retry_count": 1
-}
