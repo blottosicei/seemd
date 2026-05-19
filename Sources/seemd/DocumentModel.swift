@@ -55,7 +55,6 @@ final class DocumentModel: ObservableObject {
     private var accessingURL: URL?
 
     var documentTitle: String { url?.lastPathComponent ?? "seemd" }
-    var hasDocument: Bool { url != nil }
     /// Directory containing the open document (for resolving relative images).
     var documentDirectory: URL? { url?.deletingLastPathComponent() }
 
@@ -70,8 +69,11 @@ final class DocumentModel: ObservableObject {
 
     // MARK: - Opening
 
-    /// Open `url`: start security scope, read, parse, and begin watching.
-    func open(_ url: URL) {
+    /// Load text supplied by `DocumentGroup`. Releases any prior security
+    /// scope/watcher, parses the text, and (if a URL is present) resolves a
+    /// security-scoped bookmark, records the recent document, and begins
+    /// watching the file for external edits.
+    func load(text: String, url: URL?) {
         // Release any previously held scope.
         if let accessingURL {
             bookmarks.stopAccessing(accessingURL)
@@ -80,19 +82,21 @@ final class DocumentModel: ObservableObject {
         watcher?.stop()
         watcher = nil
 
+        loadError = nil
+
+        guard let url else {
+            self.url = nil
+            applySource(text, resetScroll: true)
+            return
+        }
+
         // Prefer a resolved security-scoped bookmark if we have one.
         let target = bookmarks.resolve(url) ?? url
         if bookmarks.startAccessing(target) {
             accessingURL = target
         }
 
-        guard let text = Self.readFile(target) else {
-            loadError = "Couldn't read \(url.lastPathComponent)."
-            return
-        }
-
         self.url = target
-        loadError = nil
         applySource(text, resetScroll: true)
 
         // Note recent + persist bookmark (best-effort).

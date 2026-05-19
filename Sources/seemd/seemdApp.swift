@@ -1,48 +1,16 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import SeemdCore
 
 @main
 struct SeemdApp: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var themeOverride: ThemeOverride = ThemePreferences.override()
 
     var body: some Scene {
-        WindowGroup {
-            RootView(pendingURL: AppDelegate.launchURL)
-                .onAppear { AppDelegate.launchURL = nil }
+        DocumentGroup(viewing: MarkdownFileDocument.self) { config in
+            RootView(text: config.document.text, fileURL: config.fileURL)
         }
         .windowToolbarStyle(.unified)
         .commands {
-            // File menu.
-            CommandGroup(replacing: .newItem) {
-                Button("New Window") {
-                    NSWorkspace.shared.open(Bundle.main.bundleURL)
-                }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
-
-                Button("Open…") { Self.openPanel() }
-                    .keyboardShortcut("o", modifiers: .command)
-
-                Menu("Open Recent") {
-                    let recents = NSDocumentController.shared.recentDocumentURLs
-                    if recents.isEmpty {
-                        Text("No Recent Documents").disabled(true)
-                    } else {
-                        ForEach(recents, id: \.self) { url in
-                            Button(url.lastPathComponent) {
-                                NotificationCenter.default.post(
-                                    name: .seemdOpenURL, object: url)
-                            }
-                        }
-                        Divider()
-                        Button("Clear Menu") {
-                            NSDocumentController.shared.clearRecentDocuments(nil)
-                        }
-                    }
-                }
-            }
-
             // View menu.
             CommandGroup(after: .sidebar) {
                 Button("Toggle Sidebar") {
@@ -86,17 +54,5 @@ struct SeemdApp: App {
 
     private func post(_ command: SeemdCommand) {
         NotificationCenter.default.post(name: .seemdCommand, object: command)
-    }
-
-    static func openPanel() {
-        let panel = NSOpenPanel()
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        var types: [UTType] = [.plainText]
-        if let md = UTType("net.daringfireball.markdown") { types.append(md) }
-        panel.allowedContentTypes = types
-        if panel.runModal() == .OK, let url = panel.url {
-            NotificationCenter.default.post(name: .seemdOpenURL, object: url)
-        }
     }
 }

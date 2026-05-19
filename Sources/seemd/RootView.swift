@@ -8,40 +8,38 @@ struct RootView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
-    /// A document to open as soon as the window appears (set by AppDelegate).
-    let pendingURL: URL?
+    /// The document text supplied by `DocumentGroup`.
+    let text: String
+    /// The document's file URL (nil for unsaved/untitled, which a viewer
+    /// never produces in practice).
+    let fileURL: URL?
 
-    init(pendingURL: URL? = nil) {
-        self.pendingURL = pendingURL
+    init(text: String, fileURL: URL?) {
+        self.text = text
+        self.fileURL = fileURL
     }
 
     var body: some View {
-        Group {
-            if model.hasDocument {
-                NavigationSplitView(columnVisibility: $columnVisibility) {
-                    TOCSidebar(model: model)
-                        .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 360)
-                } detail: {
-                    DocumentView(model: model)
-                        .navigationTitle(model.documentTitle)
-                }
-                .navigationSplitViewStyle(.balanced)
-            } else {
-                EmptyStateView(model: model)
-            }
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            TOCSidebar(model: model)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 360)
+        } detail: {
+            DocumentView(model: model)
+                .navigationTitle(model.documentTitle)
         }
+        .navigationSplitViewStyle(.balanced)
         .frame(minWidth: 640, minHeight: 480)
         .environmentObject(model)
         .preferredColorScheme(model.forcedColorScheme)
         .onAppear {
             model.updateSystemAppearance(isDark: systemColorScheme == .dark)
-            if let pendingURL { model.open(pendingURL) }
+            model.load(text: text, url: fileURL)
+        }
+        .onChange(of: text) {
+            model.load(text: text, url: fileURL)
         }
         .onChange(of: systemColorScheme) {
             model.updateSystemAppearance(isDark: systemColorScheme == .dark)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .seemdOpenURL)) { note in
-            if let url = note.object as? URL { model.open(url) }
         }
         .onReceive(NotificationCenter.default.publisher(for: .seemdToggleSidebar)) { _ in
             withAnimation(.easeInOut(duration: 0.18)) {
@@ -70,7 +68,6 @@ struct RootView: View {
 // MARK: - Cross-cutting notifications
 
 extension Notification.Name {
-    static let seemdOpenURL = Notification.Name("seemd.openURL")
     static let seemdToggleSidebar = Notification.Name("seemd.toggleSidebar")
     static let seemdCommand = Notification.Name("seemd.command")
     static let seemdFocusSearch = Notification.Name("seemd.focusSearch")
