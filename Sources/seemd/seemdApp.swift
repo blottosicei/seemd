@@ -6,8 +6,8 @@ struct SeemdApp: App {
     @State private var themeOverride: ThemeOverride = ThemePreferences.override()
 
     var body: some Scene {
-        DocumentGroup(viewing: MarkdownFileDocument.self) { config in
-            RootView(text: config.document.text, fileURL: config.fileURL)
+        DocumentGroup(newDocument: MarkdownFileDocument()) { config in
+            RootView(document: config.$document, fileURL: config.fileURL)
         }
         .windowToolbarStyle(.unified)
         .commands {
@@ -18,6 +18,12 @@ struct SeemdApp: App {
                         name: .seemdToggleSidebar, object: nil)
                 }
                 .keyboardShortcut("t", modifiers: [.command, .option])
+
+                Button("Toggle Edit") {
+                    NotificationCenter.default.post(
+                        name: .seemdToggleEdit, object: nil)
+                }
+                .keyboardShortcut("e", modifiers: .command)
 
                 Divider()
 

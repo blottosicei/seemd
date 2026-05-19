@@ -1,8 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Read-only document model backing `DocumentGroup(viewing:)`. Holds the
-/// decoded Markdown text; macOS supplies native document tabs around it.
+/// Editable document model backing `DocumentGroup(newDocument:)`. Holds the
+/// decoded Markdown text; macOS supplies native document tabs, the dirty
+/// indicator, the close-confirmation sheet, Save (⌘S) and Undo (⌘Z) around it.
 struct MarkdownFileDocument: FileDocument {
 
     /// Markdown, plain text, and `.text`. `.md`/`.markdown` conform to
@@ -11,12 +12,20 @@ struct MarkdownFileDocument: FileDocument {
         [UTType("net.daringfireball.markdown"), .plainText, .text].compactMap { $0 }
     }
 
-    /// Viewer: nothing is ever written.
-    static var writableContentTypes: [UTType] = []
+    /// Same set as readable so existing Markdown / text files round-trip on
+    /// Save without a format conversion prompt.
+    static var writableContentTypes: [UTType] {
+        [UTType("net.daringfireball.markdown"), .plainText, .text].compactMap { $0 }
+    }
 
     var text: String
 
-    init(text: String = "") {
+    /// New (untitled) document — used by the `New` command.
+    init() {
+        self.text = ""
+    }
+
+    init(text: String) {
         self.text = text
     }
 
@@ -31,7 +40,10 @@ struct MarkdownFileDocument: FileDocument {
         self.text = decoded
     }
 
+    /// Write the current text back as UTF-8. This is the path Save (⌘S) and
+    /// the close-confirmation "Save" reach; mutating `text` via the editor
+    /// binding marks the window dirty and routes here.
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
-        throw CocoaError(.featureUnsupported)
+        FileWrapper(regularFileWithContents: Data(text.utf8))
     }
 }

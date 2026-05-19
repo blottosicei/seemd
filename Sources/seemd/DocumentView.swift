@@ -1,28 +1,22 @@
 import SwiftUI
 import SeemdCore
 
-/// The scrollable rendered Markdown surface.
-struct DocumentView: View {
+/// The scrollable rendered Markdown surface (no toolbar). Reused both inside
+/// `DocumentView` (preview-only mode) and as the right-hand pane of the split
+/// editor. Keeps the same `RenderContext` + highlight-closure perf model: it
+/// observes the model only for `blocks`/scroll state, never feeding the heavy
+/// object into `BlockView`.
+struct PreviewPane: View {
     @ObservedObject var model: DocumentModel
-    @FocusState private var searchFocused: Bool
 
-    /// Layout-only preferences. Read reactively so changing them in Settings
-    /// updates open documents live. Deliberately NOT part of `RenderContext`:
-    /// width is the container frame, not a per-block rendering input, so a
-    /// change here only re-lays the outer frame — no block re-render storm.
     @AppStorage(ContentWidthPreferences.widthKey)
     private var contentWidth: Double = ContentWidthPreferences.defaultWidth
 
     @AppStorage(ContentWidthPreferences.fillKey)
     private var fillWindowWidth: Bool = false
 
-    /// Suppress scroll-spy model writes until this time. Set when a
-    /// programmatic (TOC-initiated) scroll begins so the per-frame preference
-    /// storm during the animated scroll does not thrash `activeHeadingSlug`.
     @State private var suppressSpyUntil: Date = .distantPast
 
-    /// `.infinity` when fill-window is on (content uses full available width
-    /// minus the existing horizontal padding); otherwise the clamped width cap.
     private var maxContentWidth: CGFloat {
         if fillWindowWidth { return .infinity }
         let clamped = min(max(contentWidth, ContentWidthPreferences.minWidth),
@@ -30,15 +24,6 @@ struct DocumentView: View {
         return CGFloat(clamped)
     }
 
-    private var matchCount: Int {
-        guard !model.searchQuery.isEmpty else { return 0 }
-        return SearchEngine.matchCount(in: model.source, query: model.searchQuery)
-    }
-
-    /// One value-typed render context, recomputed only when palette / zoom /
-    /// search / theme / document directory actually change. Passing this (and a
-    /// stable highlight closure) into each `BlockView` lets SwiftUI skip
-    /// untouched rows and keeps scroll-spy mutations off the block tree.
     private var renderContext: RenderContext {
         RenderContext(
             palette: model.palette,
@@ -50,37 +35,6 @@ struct DocumentView: View {
     }
 
     var body: some View {
-        documentScroll
-            .toolbar {
-                ToolbarItem(placement: .automatic) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Find", text: $model.searchQuery)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 180)
-                            .focused($searchFocused)
-                        if !model.searchQuery.isEmpty {
-                            Text("\(matchCount)")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                            Button {
-                                model.searchQuery = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .seemdFocusSearch)) { _ in
-                searchFocused = true
-            }
-    }
-
-    private var documentScroll: some View {
         let context = renderContext
         let highlight: HighlightProvider = { code, language, completion in
             model.highlightedTokens(code: code, language: language,
@@ -102,19 +56,21 @@ struct DocumentView: View {
             }
             .coordinateSpace(name: "docScroll")
             .background(Color(hex: model.palette.windowBackground, fallback: Color(NSColor.textBackgroundColor)))
+            // Capture the NSScrollView backing this SwiftUI ScrollView and
+            // hand it to the per-window coordinator for continuous offset
+            // sync. Inside the ScrollView so `enclosingScrollView` resolves.
+            .background(ScrollViewCapture(coordinator: model.scrollSync))
             .onPreferenceChange(HeadingFramePreferenceKey.self) { frames in
+                // Feed per-heading content-Y to the continuous coordinator
+                // (editor↔preview offset interpolation) AND keep the existing
+                // scroll-spy that maintains `activeHeadingSlug` for the TOC.
+                model.scrollSync.updatePreviewHeadingFrames(frames)
                 updateActiveHeading(frames)
             }
             .onChange(of: model.scrollTarget) {
                 guard let target = model.scrollTarget else { return }
-                // Suppress scroll-spy writes while the programmatic scroll is
-                // in flight so the per-frame preference storm cannot thrash
-                // `activeHeadingSlug` (which would re-highlight the TOC and
-                // fight the jump). ~250ms covers the scroll settle window.
                 suppressSpyUntil = Date().addingTimeInterval(0.25)
                 proxy.scrollTo(target, anchor: .top)
-                // Clear without extra heavy work; the guard above already
-                // returns when nil so this is a single cheap @Published write.
                 if model.scrollTarget != nil { model.scrollTarget = nil }
             }
         }
@@ -124,9 +80,10 @@ struct DocumentView: View {
     /// SeemdCore, using a 12-pt inset to match the previous threshold behaviour.
     private func updateActiveHeading(_ frames: [AppHeadingFrame]) {
         guard !frames.isEmpty else { return }
-        // While a TOC-initiated scroll is settling, suppress spy writes so the
-        // jump is not fought by per-frame highlight churn.
         guard Date() >= suppressSpyUntil else { return }
+        // Editor is the active driver: do not let its programmatic preview
+        // scroll re-derive an active slug that would bounce back to the editor.
+        guard !model.previewSyncSuppressed else { return }
         let coreFrames = frames.map {
             HeadingFrame(slug: $0.slug, minY: Double($0.minY))
         }
@@ -137,5 +94,17 @@ struct DocumentView: View {
         if let candidate, candidate != model.activeHeadingSlug {
             model.activeHeadingSlug = candidate
         }
+    }
+}
+
+/// The scrollable rendered Markdown surface plus the find toolbar (preview-only
+/// mode detail pane).
+/// Preview-only surface. The search field lives in `RootView`'s consolidated
+/// toolbar so toolbar ordering (search → … → edit toggle) is deterministic.
+struct DocumentView: View {
+    @ObservedObject var model: DocumentModel
+
+    var body: some View {
+        PreviewPane(model: model)
     }
 }

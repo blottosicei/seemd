@@ -13,6 +13,11 @@ final class DocumentModel: ObservableObject {
     @Published private(set) var source: String = ""
     @Published private(set) var blocks: [RenderBlock] = []
     @Published private(set) var headings: [MarkdownDocument.Heading] = []
+    /// Source character offset of the start of each heading line, in the SAME
+    /// document order as `headings` (parallel arrays, equal count). Computed
+    /// once per text change in `applySource` so editor↔preview scroll sync can
+    /// binary-search instead of rescanning the source on every scroll event.
+    @Published private(set) var headingCharOffsets: [Int] = []
     @Published private(set) var loadError: String?
 
     @Published var zoom: Double = ZoomScale.load()
@@ -22,6 +27,46 @@ final class DocumentModel: ObservableObject {
     /// A slug the document view should scroll to (TOC click or live-reload
     /// scroll preservation). Cleared by the view after it scrolls.
     @Published var scrollTarget: String?
+
+    // MARK: - Editor ↔ preview scroll arbiter
+
+    /// Timestamp-based, deterministic anti-feedback gate. When one pane
+    /// programmatically scrolls the other, it calls `suppressSync(...)` for
+    /// the pane being driven; that pane then ignores its own scroll-driven
+    /// sync until the deadline passes, so a programmatic scroll cannot echo
+    /// back and bounce. The pane the user actively scrolls is never
+    /// suppressed, so it always drives the other.
+    private var suppressEditorSyncUntil: Date = .distantPast
+    private var suppressPreviewSyncUntil: Date = .distantPast
+    private static let syncSuppressionWindow: TimeInterval = 0.25
+
+    /// Editor → preview just fired: silence the preview's scroll-spy so the
+    /// resulting preview scroll does not bounce back into the editor.
+    func suppressPreviewSync() {
+        suppressPreviewSyncUntil =
+            Date().addingTimeInterval(Self.syncSuppressionWindow)
+    }
+
+    /// Preview → editor just fired: silence the editor's bounds-driven sync
+    /// so the resulting editor scroll does not bounce back into the preview.
+    func suppressEditorSync() {
+        suppressEditorSyncUntil =
+            Date().addingTimeInterval(Self.syncSuppressionWindow)
+    }
+
+    /// True while the editor should ignore its bounds-change-driven sync
+    /// because the preview is currently driving.
+    var editorSyncSuppressed: Bool { Date() < suppressEditorSyncUntil }
+
+    /// True while the preview should ignore its scroll-spy because the editor
+    /// is currently driving.
+    var previewSyncSuppressed: Bool { Date() < suppressPreviewSyncUntil }
+
+    /// Per-window continuous scroll synchroniser (editor↔preview). Lazily
+    /// created and owned here so it shares the window's lifetime; it is a
+    /// plain helper object, never @Published and never injected into the
+    /// block tree (BlockView stays decoupled — no heavy ObservableObject).
+    private(set) lazy var scrollSync = ScrollSyncCoordinator(model: self)
 
     @Published private(set) var effectiveTheme: EffectiveTheme = .light
     @Published private(set) var palette: ThemePalette = ThemePalette.palette(for: .light)
@@ -47,6 +92,11 @@ final class DocumentModel: ObservableObject {
     private var highlightCache: [CacheKey: [HighlightToken]] = [:]
 
     // MARK: - Private
+
+    /// Set by the view while the in-app editor is active and has unsaved
+    /// changes. While true, the file watcher's live-reload is suppressed so an
+    /// external write cannot clobber the user's unsaved edits.
+    var hasUnsavedEdits = false
 
     private var systemIsDark = false
     private let bookmarks = BookmarkStore()
@@ -132,7 +182,16 @@ final class DocumentModel: ObservableObject {
     private func reload() {
         guard let url else { return }
         guard let text = Self.readFile(url) else { return }
-        guard text != source else { return }
+        // If the file on disk now matches our in-memory source, the most
+        // recent write was our own Save — the editor and disk are back in
+        // sync, so clear the unsaved guard and stop (nothing to reload).
+        guard text != source else {
+            hasUnsavedEdits = false
+            return
+        }
+        // Disk genuinely diverged. Never let an external write stomp the
+        // user's unsaved in-app edits.
+        guard !hasUnsavedEdits else { return }
         let preserved = activeHeadingSlug
         applySource(text, resetScroll: false)
         if let preserved, headings.contains(where: { $0.slug == preserved }) {
@@ -140,14 +199,77 @@ final class DocumentModel: ObservableObject {
         }
     }
 
+    /// Re-parse + rebuild the rendered block tree from edited source while the
+    /// in-app editor is the source of truth. Deliberately does NOT reset scroll
+    /// and does NOT touch `activeHeadingSlug` so live-preview edits cannot
+    /// trigger a scroll jump or TOC re-highlight storm. The view debounces the
+    /// calls; this only mutates `source`/`headings`/`blocks`.
+    func applyEditedSource(_ text: String) {
+        guard text != source else { return }
+        applySource(text, resetScroll: false)
+    }
+
     private func applySource(_ text: String, resetScroll: Bool) {
         source = text
         let doc = MarkdownDocument(text)
-        headings = doc.headings
+        let parsedHeadings = doc.headings
+        headings = parsedHeadings
+        headingCharOffsets = Self.headingLineOffsets(
+            in: text, count: parsedHeadings.count)
         blocks = RenderBuilder.build(doc)
         if resetScroll {
             activeHeadingSlug = headings.first?.slug
         }
+    }
+
+    /// One-pass O(n) scan of `text` collecting the UTF-16 character offset of
+    /// the start of every ATX heading line (same rule as
+    /// `MarkdownEditor.isHeadingLine`: optional ≤3 spaces, 1–6 `#`, then a
+    /// space/tab). Truncated/padded to `count` so it stays a parallel array
+    /// with `headings` even when Setext headings or `#` inside fenced code
+    /// blocks make the line scan and the AST walk disagree (heading detection
+    /// inside fences is intentionally imperfect — kept simple and O(n)).
+    private static func headingLineOffsets(in text: String,
+                                           count: Int) -> [Int] {
+        guard count > 0 else { return [] }
+        let ns = text as NSString
+        let length = ns.length
+        var offsets: [Int] = []
+        offsets.reserveCapacity(count)
+        var loc = 0
+        while loc < length {
+            let lineRange = ns.lineRange(
+                for: NSRange(location: loc, length: 0))
+            let line = ns.substring(with: lineRange)
+            if isHeadingLine(line) { offsets.append(lineRange.location) }
+            let next = lineRange.location + lineRange.length
+            if next <= loc { break }
+            loc = next
+        }
+        if offsets.count > count {
+            offsets.removeLast(offsets.count - count)
+        } else if offsets.count < count {
+            offsets.append(
+                contentsOf: Array(repeating: length,
+                                  count: count - offsets.count))
+        }
+        return offsets
+    }
+
+    /// Heading-line predicate, identical rule to
+    /// `MarkdownEditor.Coordinator.isHeadingLine`.
+    private static func isHeadingLine(_ line: String) -> Bool {
+        var s = Substring(line)
+        var spaces = 0
+        while let f = s.first, f == " ", spaces < 3 {
+            s = s.dropFirst(); spaces += 1
+        }
+        var hashes = 0
+        while let f = s.first, f == "#", hashes < 7 {
+            s = s.dropFirst(); hashes += 1
+        }
+        guard (1...6).contains(hashes) else { return false }
+        return s.first == " " || s.first == "\t"
     }
 
     private static func readFile(_ url: URL) -> String? {
