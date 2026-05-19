@@ -50,6 +50,10 @@ struct SeemdApp: App {
                 }
             }
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 
     private func post(_ command: SeemdCommand) {

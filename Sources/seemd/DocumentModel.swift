@@ -57,6 +57,17 @@ final class DocumentModel: ObservableObject {
     var documentTitle: String { url?.lastPathComponent ?? "seemd" }
     /// Directory containing the open document (for resolving relative images).
     var documentDirectory: URL? { url?.deletingLastPathComponent() }
+    /// Full file path shown as a small subtitle under the title, with the
+    /// user's home directory abbreviated to `~`.
+    var documentSubtitle: String {
+        guard let path = url?.path else { return "" }
+        let home = NSHomeDirectory()
+        if path == home { return "~" }
+        if path.hasPrefix(home + "/") {
+            return "~" + path.dropFirst(home.count)
+        }
+        return path
+    }
 
     // MARK: - Lifecycle
 

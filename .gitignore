@@ -6,3 +6,4 @@
 .swiftpm/
 Package.resolved
 dist/
+.omc/

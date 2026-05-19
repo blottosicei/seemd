@@ -11,6 +11,11 @@ struct InlineRenderer {
     let searchQuery: String
     /// Directory used to resolve relative local image paths.
     let baseDirectory: URL?
+    /// Base font weight for plain runs. Body text is `.regular`; heading
+    /// renderers pass `.semibold`/`.bold` so the weight is baked into the
+    /// `AttributedString` runs (run-level font overrides the `Text` modifier,
+    /// so the weight/size MUST come from here for headings to render correctly).
+    var baseWeight: Font.Weight = .regular
 
     private var bodyColor: Color { Color(hex: palette.bodyText, fallback: .primary) }
     private var linkColor: Color { Color(hex: palette.accentLink, fallback: .accentColor) }
@@ -103,8 +108,13 @@ struct InlineRenderer {
                         italic: Bool,
                         strike: Bool) -> AttributedString {
         var a = AttributedString(string)
-        var font = Font.system(size: baseFontSize)
-        if bold { font = font.weight(.semibold) }
+        // Bold inline goes one step heavier than the run's base weight, so a
+        // body `**word**` is semibold while bold text inside an already-bold
+        // heading reads as truly bold.
+        let weight: Font.Weight = bold
+            ? (baseWeight == .regular ? .semibold : .bold)
+            : baseWeight
+        var font = Font.system(size: baseFontSize, weight: weight)
         if italic { font = font.italic() }
         a.font = font
         a.foregroundColor = bodyColor
