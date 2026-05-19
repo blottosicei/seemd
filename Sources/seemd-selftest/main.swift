@@ -20,5 +20,6 @@ allCases += liveReloadCases()     // US-006
 allCases += themeCases()          // US-007
 allCases += searchZoomCases()     // US-009 (pure logic)
 allCases += bookmarkCases()       // US-005 (bookmark helper)
+allCases += scrollSpyCases()      // US-008
 
 exit(runSelfTests(allCases))
