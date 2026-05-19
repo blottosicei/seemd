@@ -1,0 +1,12 @@
+{
+  "active": true,
+  "iteration": 1,
+  "max_iterations": 100,
+  "started_at": "2026-05-19T02:29:50.818Z",
+  "prompt": "/ralph PRD를 확인 및 점검하고 개발을 진행해줘.",
+  "session_id": "1f835a94-6965-4e9d-8bb7-76e23dfcb1c9",
+  "project_path": "/Users/sicei/Documents/GitHub/seemd",
+  "linked_ultrawork": true,
+  "awaiting_confirmation": true,
+  "last_checked_at": "2026-05-19T02:29:50.819Z"
+}
