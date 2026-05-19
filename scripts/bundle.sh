@@ -22,6 +22,11 @@ mkdir -p "$APP/Contents/Resources"
 cp "$BIN_PATH/$BIN_NAME" "$APP/Contents/MacOS/$BIN_NAME"
 cp "Resources/Info.plist" "$APP/Contents/Info.plist"
 
+# App icon (referenced by Info.plist CFBundleIconFile = AppIcon).
+if [ -f "Resources/AppIcon.icns" ]; then
+  cp "Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+fi
+
 # Bundle SwiftPM resource bundles, if any.
 find "$BIN_PATH" -maxdepth 1 -name "*.bundle" -exec cp -R {} "$APP/Contents/Resources/" \; 2>/dev/null || true
 
