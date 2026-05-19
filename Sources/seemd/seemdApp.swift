@@ -1,4 +1,5 @@
 import SwiftUI
+import SeemdCore
 
 @main
 struct SeemdApp: App {
