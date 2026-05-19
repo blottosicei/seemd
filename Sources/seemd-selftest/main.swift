@@ -11,7 +11,12 @@ allCases += [
     }
 ]
 
-// US-002+ suites are appended below as features land.
+// Per-feature suites (appended as stories land).
 allCases += scaffoldSmokeCases()
+allCases += parsingCases()        // US-002
+allCases += highlightCases()      // US-004
+allCases += liveReloadCases()     // US-006
+allCases += themeCases()          // US-007
+allCases += searchZoomCases()     // US-009 (pure logic)
 
 exit(runSelfTests(allCases))
