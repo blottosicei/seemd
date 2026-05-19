@@ -47,6 +47,14 @@ final class ScrollSyncCoordinator {
 
     private weak var model: DocumentModel?
 
+    /// True only while the split editor is on screen. Set by `RootView` when
+    /// it toggles edit mode. When false (preview-only / viewer mode) the
+    /// coordinator performs NO bounds-driven sync on either pane: the preview
+    /// scrolls completely freely and nothing ever writes its origin except an
+    /// explicit, one-shot `scrollPreview(toHeadingSlug:)` (TOC click /
+    /// live-reload preservation, driven by `model.scrollTarget`).
+    private var isEditing = false
+
     private var editorObserver: NSObjectProtocol?
     private var previewObserver: NSObjectProtocol?
 
@@ -55,6 +63,13 @@ final class ScrollSyncCoordinator {
     /// stepped) while still doing only O(log n)+O(1) work per turn.
     private var editorTick = false
     private var previewTick = false
+    /// Coalesces scroll-spy the same way as sync: a `boundsDidChange` storm
+    /// (many notifications per displayed frame) collapses to ONE spy
+    /// recompute per run-loop turn instead of one per notification, so the
+    /// per-event cost on a large document is bounded and not redundantly
+    /// repeated. The recompute itself is a single O(n) heading-frame pass +
+    /// O(log n) `ScrollSpy.activeSlug`; the write is already deduped.
+    private var previewSpyTick = false
 
     init(model: DocumentModel) {
         self.model = model
@@ -66,6 +81,24 @@ final class ScrollSyncCoordinator {
         }
         if let previewObserver {
             NotificationCenter.default.removeObserver(previewObserver)
+        }
+    }
+
+    // MARK: Edit state
+
+    /// `RootView` tells the coordinator whether the split editor is active.
+    /// Bidirectional bounds-driven sync only runs while editing AND both
+    /// scroll views are registered; in viewer mode the preview is never
+    /// programmatically moved by a bounds change.
+    func setEditing(_ editing: Bool) {
+        isEditing = editing
+        if !editing {
+            // Leaving edit mode: the editor scroll view is being torn down.
+            // Drop it so a stale weak reference can never make a viewer-mode
+            // bounds change look like an edit-mode sync.
+            editorScroll = nil
+            editorHeadingY = nil
+            editorContentHeight = nil
         }
     }
 
@@ -105,7 +138,60 @@ final class ScrollSyncCoordinator {
             forName: NSView.boundsDidChangeNotification,
             object: scrollView.contentView, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.schedulePreviewSync() }
+            MainActor.assumeIsolated {
+                // Scroll-spy is a READ-ONLY update of `model.activeHeadingSlug`
+                // (TOC highlight). It is deliberately NOT gated by
+                // `syncEnabled` / `previewSyncSuppressed` and never moves or
+                // scrolls any pane, so it runs in BOTH viewer and edit mode and
+                // cannot cause the viewer rubber-band. The bidirectional
+                // bounds-driven sync below is the only path gated by the edit
+                // state + the 250ms suppression arbiter.
+                self?.schedulePreviewScrollSpy()
+                self?.schedulePreviewSync()
+            }
+        }
+    }
+
+    // MARK: Scroll-spy (read-only TOC active-heading tracking)
+
+    /// Recompute `model.activeHeadingSlug` from the preview's REAL clip-view
+    /// offset on every `boundsDidChange`.
+    ///
+    /// Why this exists: scroll-spy used to be driven by the SwiftUI
+    /// `HeadingFramePreferenceKey` + GeometryReader in the `"docScroll"`
+    /// coordinate space. Now the preview content is an `NSHostingView` inside
+    /// this app-owned `NSScrollView` — the SwiftUI content does NOT move in its
+    /// own coordinate space when the scroll view scrolls (the clip view moves),
+    /// so `onPreferenceChange` never re-fires on scroll and the active heading
+    /// got stuck on the first one. We instead read the clip offset directly.
+    ///
+    /// Each heading's `minY` is its content-space Y (`previewHeadingY[i]`, the
+    /// same table the continuous sync uses) made relative to the current clip
+    /// origin: `minY = previewHeadingY[i] - clipTop`. There is NO content-inset
+    /// compensation: the title-bar / FormatBar clearance is now baked into the
+    /// hosted content as top padding, so `previewHeadingY` ALREADY includes it
+    /// and lives in the SAME space as `clipTop` (origin 0 == true top). Adding
+    /// a `contentInsets.top` term here would double-count the clearance. Only
+    /// the historical ~12pt activation threshold remains, so a heading becomes
+    /// active when its top edge reaches just inside the visible region.
+    private func previewScrollSpy() {
+        guard let model, let previewScroll else { return }
+        let headings = model.headings
+        guard !headings.isEmpty, !previewHeadingY.isEmpty else { return }
+        let clipTop = previewScroll.contentView.bounds.origin.y
+        let count = min(headings.count, previewHeadingY.count)
+        var frames: [HeadingFrame] = []
+        frames.reserveCapacity(count)
+        for i in 0..<count {
+            frames.append(HeadingFrame(
+                slug: headings[i].slug,
+                minY: Double(previewHeadingY[i] - clipTop)))
+        }
+        let candidate = ScrollSpy.activeSlug(
+            headingFrames: frames,
+            viewportTopInset: 12)
+        if let candidate, candidate != model.activeHeadingSlug {
+            model.activeHeadingSlug = candidate
         }
     }
 
@@ -152,6 +238,12 @@ final class ScrollSyncCoordinator {
         let viewport = previewScroll.contentView.bounds.height
         let content = max(previewScroll.documentView?.bounds.height ?? 0,
                           viewport)
+        // Target the heading's content-space Y directly (clamped to
+        // `[0, maxScroll]`). NO content-inset subtraction: the title-bar /
+        // FormatBar clearance is baked into the hosted content as top padding,
+        // so `previewHeadingY[index]` already sits below the bar in the same
+        // space as the clip origin. Subtracting an inset here would scroll the
+        // heading up UNDER the bar (double-counting the now-absent inset).
         let y = ScrollSyncMath.clampOffset(
             Double(previewHeadingY[index]),
             contentHeight: Double(content),
@@ -162,7 +254,16 @@ final class ScrollSyncCoordinator {
 
     // MARK: Sync scheduling (coalesced to next run-loop turn)
 
+    /// Bidirectional bounds-driven sync only runs while the split editor is on
+    /// screen AND both scroll views are live. In viewer mode (preview only)
+    /// this is always false, so a preview bounds change is fully ignored — the
+    /// user's manual scroll is never fought and never reset.
+    private var syncEnabled: Bool {
+        isEditing && editorScroll != nil && previewScroll != nil
+    }
+
     private func scheduleEditorSync() {
+        guard syncEnabled else { return }
         guard !editorTick else { return }
         editorTick = true
         DispatchQueue.main.async { [weak self] in
@@ -171,7 +272,21 @@ final class ScrollSyncCoordinator {
         }
     }
 
+    /// Coalesce scroll-spy to one recompute per run-loop turn (mirrors the
+    /// sync schedulers). NOT gated by `syncEnabled`: scroll-spy is a read-only
+    /// TOC-highlight update that must run in BOTH viewer and edit mode and
+    /// never moves a pane (so it cannot cause the viewer rubber-band).
+    private func schedulePreviewScrollSpy() {
+        guard !previewSpyTick else { return }
+        previewSpyTick = true
+        DispatchQueue.main.async { [weak self] in
+            self?.previewSpyTick = false
+            self?.previewScrollSpy()
+        }
+    }
+
     private func schedulePreviewSync() {
+        guard syncEnabled else { return }
         guard !previewTick else { return }
         previewTick = true
         DispatchQueue.main.async { [weak self] in

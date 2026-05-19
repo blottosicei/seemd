@@ -15,14 +15,16 @@ import SeemdCore
 /// `ScrollSyncCoordinator` observes/drives the real clip view directly).
 struct PreviewPane: View {
     @ObservedObject var model: DocumentModel
+    /// Top content clearance. Viewer mode (default) clears the title bar only;
+    /// edit mode passes `HostedScrollView.editTopInset` to also clear the
+    /// FormatBar row.
+    var topPadding: CGFloat = PreviewTopInset.viewer
 
     @AppStorage(ContentWidthPreferences.widthKey)
     private var contentWidth: Double = ContentWidthPreferences.defaultWidth
 
     @AppStorage(ContentWidthPreferences.fillKey)
     private var fillWindowWidth: Bool = false
-
-    @State private var suppressSpyUntil: Date = .distantPast
 
     private var maxContentWidth: CGFloat {
         if fillWindowWidth { return .infinity }
@@ -49,10 +51,16 @@ struct PreviewPane: View {
         }
         return HostedScrollView(
             maxContentWidth: maxContentWidth,
+            topPadding: topPadding,
             backgroundHex: model.palette.windowBackground,
             coordinator: model.scrollSync
         ) {
-            LazyVStack(alignment: .leading, spacing: 14) {
+            // Regular VStack (NOT LazyVStack): a LazyVStack does not report a
+            // finite intrinsic height to the enclosing NSHostingView, so the
+            // app-owned NSScrollView's documentView would collapse to the clip
+            // height and never become scrollable. Per-block BlockView is still
+            // cheap and RenderContext+closure decoupled (no .drawingGroup()).
+            VStack(alignment: .leading, spacing: 14) {
                 ForEach(model.blocks.indices, id: \.self) { i in
                     BlockView(block: model.blocks[i],
                               context: context,
@@ -61,10 +69,15 @@ struct PreviewPane: View {
             }
             .onPreferenceChange(HeadingFramePreferenceKey.self) { frames in
                 // Feed per-heading content-Y to the continuous coordinator
-                // (editor↔preview offset interpolation) AND keep the existing
-                // scroll-spy that maintains `activeHeadingSlug` for the TOC.
+                // (editor↔preview offset interpolation) AND the clip-offset
+                // scroll-spy table. Scroll-spy itself is NO LONGER driven from
+                // this PreferenceKey: the hosted SwiftUI content does not move
+                // in its own coordinate space when the NSScrollView scrolls
+                // (the clip view moves), so `onPreferenceChange` never re-fires
+                // on scroll. `ScrollSyncCoordinator.previewScrollSpy()` now
+                // derives `activeHeadingSlug` from the real clip offset on
+                // every `boundsDidChange` (works in both viewer + edit mode).
                 model.scrollSync.updatePreviewHeadingFrames(frames)
-                updateActiveHeading(frames)
             }
         }
         .onChange(of: model.scrollTarget) {
@@ -73,30 +86,11 @@ struct PreviewPane: View {
             // preservation. The hosted NSScrollView is scrolled to the
             // heading's content-Y via the same preview heading-Y table the
             // continuous sync uses. NOT the live editor↔preview sync (that
-            // path no longer reads `scrollTarget`).
-            suppressSpyUntil = Date().addingTimeInterval(0.25)
+            // path no longer reads `scrollTarget`). The resulting clip
+            // `boundsDidChange` lets the coordinator's scroll-spy re-derive
+            // the active heading to match the scrolled-to target.
             model.scrollSync.scrollPreview(toHeadingSlug: target)
             if model.scrollTarget != nil { model.scrollTarget = nil }
-        }
-    }
-
-    /// Scroll-spy: delegates to the pure `ScrollSpy.activeSlug` function in
-    /// SeemdCore, using a 12-pt inset to match the previous threshold behaviour.
-    private func updateActiveHeading(_ frames: [AppHeadingFrame]) {
-        guard !frames.isEmpty else { return }
-        guard Date() >= suppressSpyUntil else { return }
-        // Editor is the active driver: do not let its programmatic preview
-        // scroll re-derive an active slug that would bounce back to the editor.
-        guard !model.previewSyncSuppressed else { return }
-        let coreFrames = frames.map {
-            HeadingFrame(slug: $0.slug, minY: Double($0.minY))
-        }
-        let candidate = ScrollSpy.activeSlug(
-            headingFrames: coreFrames,
-            viewportTopInset: 12
-        )
-        if let candidate, candidate != model.activeHeadingSlug {
-            model.activeHeadingSlug = candidate
         }
     }
 }

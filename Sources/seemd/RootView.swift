@@ -98,7 +98,8 @@ struct RootView: View {
                                        palette: model.palette,
                                        model: model)
                             .frame(minWidth: 280)
-                        PreviewPane(model: model)
+                        PreviewPane(model: model,
+                                    topPadding: PreviewTopInset.edit)
                             .frame(minWidth: 280)
                     }
                 }
@@ -144,6 +145,9 @@ struct RootView: View {
         }
         .onAppear {
             model.updateSystemAppearance(isDark: systemColorScheme == .dark)
+            // Start in viewer mode: the coordinator must ignore preview bounds
+            // changes until the editor is actually on screen.
+            model.scrollSync.setEditing(isEditing)
             model.load(text: document.text, url: fileURL)
         }
         .onChange(of: document.text) {
@@ -194,6 +198,10 @@ struct RootView: View {
         withAnimation(.easeInOut(duration: 0.18)) {
             isEditing.toggle()
         }
+        // Tell the coordinator the edit state. In viewer mode it must never
+        // perform a bounds-driven sync on the preview (no rubber-band); only
+        // in edit mode is the bidirectional editor↔preview sync active.
+        model.scrollSync.setEditing(isEditing)
         if isEditing {
             // Sync the preview to the current text on entering edit mode.
             model.applyEditedSource(document.text)
