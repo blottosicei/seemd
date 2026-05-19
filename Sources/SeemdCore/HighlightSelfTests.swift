@@ -99,28 +99,25 @@ public func highlightCases() -> [TestCase] {
 
 // MARK: - Synchronous bridge helpers
 
-/// Runs `SyntaxHighlighter.highlight` synchronously via a semaphore+Task bridge.
-private func runHighlight(_ code: String, language: String?, theme: CodeTheme) -> [HighlightToken] {
+/// Bridges an async `SyntaxHighlighter` call to a synchronous result so the
+/// existing (sync) `TestCase` infrastructure stays unchanged.
+private func runSync<T>(_ fallback: T,
+                        _ operation: @escaping (SyntaxHighlighter) async -> T) -> T {
     let sema = DispatchSemaphore(value: 0)
-    nonisolated(unsafe) var result: [HighlightToken] = []
+    nonisolated(unsafe) var result = fallback
     let highlighter = SyntaxHighlighter()
     Task {
-        result = await highlighter.highlight(code, language: language, theme: theme)
+        result = await operation(highlighter)
         sema.signal()
     }
     sema.wait()
     return result
 }
 
-/// Runs `SyntaxHighlighter.paletteIsDark` synchronously.
+private func runHighlight(_ code: String, language: String?, theme: CodeTheme) -> [HighlightToken] {
+    runSync([]) { await $0.highlight(code, language: language, theme: theme) }
+}
+
 private func runPaletteIsDark(_ theme: CodeTheme) -> Bool {
-    let sema = DispatchSemaphore(value: 0)
-    nonisolated(unsafe) var result = false
-    let highlighter = SyntaxHighlighter()
-    Task {
-        result = await highlighter.paletteIsDark(theme)
-        sema.signal()
-    }
-    sema.wait()
-    return result
+    runSync(false) { await $0.paletteIsDark(theme) }
 }

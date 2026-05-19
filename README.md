@@ -8,6 +8,8 @@ A lightweight, native macOS Markdown **viewer** — VS Code-quality rendering wi
 
 MVP (v0.1) in development. See [`PRD.md`](PRD.md) for the full product spec and [`prd.json`](prd.json) for tracked stories.
 
+> **Syntax highlighting note:** highlighting is powered by [Splash](https://github.com/JohnSundell/Splash), which ships a Swift grammar only. Swift code fences are fully tokenized; other languages (JS/TS/Python/JSON/Shell/Bash) are recognized and rendered as monospaced code on the themed background but are not token-colored yet. Broader language coverage is tracked in the PRD backlog.
+
 ## Build
 
 Requires Swift 5.9+ (Command Line Tools or Xcode).

@@ -39,6 +39,9 @@ public final class Debouncer {
     private let interval: TimeInterval
     private let queue: DispatchQueue
     private var workItem: DispatchWorkItem?
+    // `schedule`/`cancel` may be called from a file-watcher queue and the main
+    // thread; this lock keeps `workItem` access race-free.
+    private let lock = NSLock()
 
     public init(interval: TimeInterval, queue: DispatchQueue = .main) {
         self.interval = interval
@@ -48,15 +51,19 @@ public final class Debouncer {
     /// Schedule `work` to run after the debounce interval.
     /// Calling this again before the interval elapses cancels the previous schedule.
     public func schedule(_ work: @escaping () -> Void) {
+        lock.lock()
         workItem?.cancel()
         let item = DispatchWorkItem(block: work)
         workItem = item
+        lock.unlock()
         queue.asyncAfter(deadline: .now() + interval, execute: item)
     }
 
     /// Cancel any pending scheduled work without executing it.
     public func cancel() {
+        lock.lock()
         workItem?.cancel()
         workItem = nil
+        lock.unlock()
     }
 }
