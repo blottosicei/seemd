@@ -27,6 +27,12 @@ if [ -f "Resources/AppIcon.icns" ]; then
   cp "Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
 
+# Document icon (referenced by Info.plist CFBundleDocumentTypes /
+# CFBundleTypeIconFile = DocumentIcon). Used by Finder as the .md file icon.
+if [ -f "Resources/DocumentIcon.icns" ]; then
+  cp "Resources/DocumentIcon.icns" "$APP/Contents/Resources/DocumentIcon.icns"
+fi
+
 # Bundle SwiftPM resource bundles, if any.
 find "$BIN_PATH" -maxdepth 1 -name "*.bundle" -exec cp -R {} "$APP/Contents/Resources/" \; 2>/dev/null || true
 

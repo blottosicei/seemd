@@ -17,6 +17,11 @@ struct BlockView: View {
     private var bodyColor: Color { Color(hex: palette.bodyText, fallback: .primary) }
     private var secondaryColor: Color { Color(hex: palette.secondaryText, fallback: .secondary) }
     private var separatorColor: Color { Color(hex: palette.separator, fallback: Color.gray.opacity(0.3)) }
+    /// Brighter, theme-aware border color used only for tables (outer rounded
+    /// stroke + header divider + visible inner column dividers + row dividers)
+    /// so the table reads as a distinct structure rather than blending into
+    /// the dim paragraph-divider tone.
+    private var tableBorderColor: Color { bodyColor.opacity(0.28) }
 
     var body: some View {
         content
@@ -51,7 +56,9 @@ struct BlockView: View {
 
         case let .table(header, rows, alignments):
             TableView(header: header, rows: rows, alignments: alignments,
-                      renderer: renderer, separator: separatorColor)
+                      renderer: renderer,
+                      separator: separatorColor,
+                      border: tableBorderColor)
 
         case .thematicBreak:
             Divider().overlay(separatorColor).padding(.vertical, 8)
@@ -281,7 +288,12 @@ private struct TableView: View {
     let rows: [[[InlineNode]]]
     let alignments: [ColumnAlignment]
     let renderer: InlineRenderer
+    /// Dim color used only for paragraph-level separators in context.
     let separator: Color
+    /// Brighter border color for outer stroke, header divider, row dividers,
+    /// and visible inner column dividers — makes the table read as a distinct
+    /// structure.
+    let border: Color
 
     @EnvironmentObject private var layout: TableLayoutStore
 
@@ -367,11 +379,14 @@ private struct TableView: View {
         ScrollView(.horizontal, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 0) {
                 rowView(cells: header, widths: cols, header: true)
-                Divider().overlay(separator)
+                // Crisp 1pt header underline in the prominent border color.
+                Rectangle().fill(border).frame(height: 1)
                 ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
                     rowView(cells: row, widths: cols, header: false)
                     if idx < rows.count - 1 {
-                        Divider().overlay(separator.opacity(0.5))
+                        // Row inter-dividers use the same prominent border
+                        // color so rows read as clearly separated.
+                        Rectangle().fill(border).frame(height: 1)
                     }
                 }
             }
@@ -380,7 +395,7 @@ private struct TableView: View {
             }
             .overlay(
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(separator, lineWidth: 1)
+                    .stroke(border, lineWidth: 2)
                     .allowsHitTesting(false)
             )
         }
@@ -415,11 +430,14 @@ private struct TableView: View {
                     .frame(width: cols[col])
                     .frame(maxHeight: .infinity)
                     .overlay(alignment: .trailing) {
-                        // A handle on every column boundary INCLUDING the
-                        // table's right outer edge (last column).
+                        // Handle on every column boundary; the LAST column's
+                        // handle stays hittable for resize but draws no line,
+                        // so the outer rounded-rect stroke is the only visible
+                        // line at the right edge (no doubled seam).
                         ColumnDivider(
-                            color: separator,
+                            color: border,
                             hitWidth: dividerHitWidth,
+                            drawsLine: col < columnCount - 1,
                             currentWidth: cols[col],
                             onResize: { newWidth in
                                 setColumnWidth(col: col, to: newWidth,
@@ -456,6 +474,10 @@ private struct TableView: View {
 private struct ColumnDivider: View {
     let color: Color
     let hitWidth: CGFloat
+    /// Whether to render the visible 1pt line. The last column's handle stays
+    /// hittable for resize but draws no line, so the outer rounded-rect stroke
+    /// is the only visible vertical at the table's right edge (no doubled seam).
+    let drawsLine: Bool
     /// The column's current width, snapshotted at drag start.
     let currentWidth: CGFloat
     /// Absolute new width for the column (already mouse-tracked).
@@ -474,11 +496,13 @@ private struct ColumnDivider: View {
             .fill(Color.clear)
             .frame(width: hitWidth)
             .frame(maxHeight: .infinity)
-            .overlay(
-                Rectangle()
-                    .fill(color)
-                    .frame(width: 1)
-            )
+            .overlay {
+                if drawsLine {
+                    Rectangle()
+                        .fill(color)
+                        .frame(width: 1)
+                }
+            }
             .contentShape(Rectangle())
             .onContinuousHover { phase in
                 switch phase {
