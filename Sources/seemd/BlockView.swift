@@ -394,8 +394,14 @@ private struct TableView: View {
                 dividerOverlay(widths: cols)
             }
             .overlay(
+                // strokeBorder (not stroke) draws the whole 2pt INSIDE the
+                // bounds. A centered .stroke puts 1pt outside the edge, and the
+                // enclosing horizontal ScrollView clips that outer half on the
+                // left (at content origin) but not on the right — making the
+                // right edge look thicker than the left. Inset stroke keeps all
+                // four edges uniform and unclipped.
                 RoundedRectangle(cornerRadius: 6)
-                    .stroke(border, lineWidth: 2)
+                    .strokeBorder(border, lineWidth: 2)
                     .allowsHitTesting(false)
             )
         }
