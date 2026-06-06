@@ -3,13 +3,25 @@
     <channel>
         <title>seemd</title>
         <item>
+            <title>0.4.0</title>
+            <pubDate>Sat, 06 Jun 2026 13:16:03 +0900</pubDate>
+            <sparkle:version>0.4.0</sparkle:version>
+            <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <enclosure url="https://github.com/blottosicei/seemd/releases/download/v0.4.0/seemd-0.4.0.zip" length="5385806" type="application/octet-stream" sparkle:edSignature="zK1WYKSF3qBfGfGY35QCp4dPHpe4/PBgYlZiK+OJt9CtquE8HWAIDwWo6rBS8SsSrsB2RvaWXWn3sH5/Uv2KDQ=="/>
+            <sparkle:deltas>
+                <enclosure url="https://github.com/blottosicei/seemd/releases/download/v0.4.0/seemd0.4.0-0.3.0.delta" sparkle:deltaFrom="0.3.0" length="1498" type="application/octet-stream" sparkle:deltaFromSparkleExecutableSize="977616" sparkle:deltaFromSparkleLocales="de,he,ar,el,ja,fa,uk" sparkle:edSignature="h+qTCqmvRkcLrUUWKsn6vD3PgLrl+HXwvhng0YfffzF1NS12AeQREHvvn9wu528Aq6/3ftYs8HpKTCMqzr4BDA=="/>
+            </sparkle:deltas>
+        </item>
+        <item>
             <title>0.3.0</title>
             <pubDate>Sat, 06 Jun 2026 13:09:13 +0900</pubDate>
             <sparkle:version>0.3.0</sparkle:version>
             <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/blottosicei/seemd/releases/download/v0.3.0/seemd-0.3.0.zip" length="5385810" type="application/octet-stream" sparkle:edSignature="ST48gbjREw5P7fd16K5+oSSt6s+sarayu0gVn9Q0SS37dOaeXytrdmlNUSyDdlr0xmruH1HSljAu+rQohvv6AA=="/>
+            <enclosure url="https://github.com/blottosicei/seemd/releases/download/v0.4.0/seemd-0.3.0.zip" length="5385810" type="application/octet-stream" sparkle:edSignature="ST48gbjREw5P7fd16K5+oSSt6s+sarayu0gVn9Q0SS37dOaeXytrdmlNUSyDdlr0xmruH1HSljAu+rQohvv6AA=="/>
         </item>
     </channel>
 </rss>
