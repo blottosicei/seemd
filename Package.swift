@@ -13,7 +13,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-markdown.git", from: "0.3.0"),
-        .package(url: "https://github.com/JohnSundell/Splash.git", from: "0.16.0")
+        .package(url: "https://github.com/JohnSundell/Splash.git", from: "0.16.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.6.0")
     ],
     targets: [
         .target(
@@ -26,7 +27,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "seemd",
-            dependencies: ["SeemdCore"],
+            dependencies: [
+                "SeemdCore",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
             path: "Sources/seemd"
         ),
         .executableTarget(

@@ -36,7 +36,34 @@ fi
 # Bundle SwiftPM resource bundles, if any.
 find "$BIN_PATH" -maxdepth 1 -name "*.bundle" -exec cp -R {} "$APP/Contents/Resources/" \; 2>/dev/null || true
 
-echo "==> Ad-hoc code signing"
-codesign --force --deep --sign - "$APP" || echo "warning: codesign failed (continuing, ad-hoc)"
+# Embed Sparkle.framework (auto-update engine). SwiftPM links against the
+# xcframework in .build/artifacts but does NOT copy it into the bundle, so we
+# do it here and point the executable's rpath at Contents/Frameworks.
+echo "==> Embedding Sparkle.framework"
+SPARKLE_FW="$(find "$ROOT/.build/artifacts" -path '*macos-arm64_x86_64/Sparkle.framework' -type d 2>/dev/null | head -n1)"
+if [ -z "$SPARKLE_FW" ]; then
+  SPARKLE_FW="$(find "$ROOT/.build/artifacts" -name 'Sparkle.framework' -type d 2>/dev/null | head -n1)"
+fi
+if [ -z "$SPARKLE_FW" ]; then
+  echo "error: Sparkle.framework not found under .build/artifacts (run 'swift package resolve')" >&2
+  exit 1
+fi
+mkdir -p "$APP/Contents/Frameworks"
+cp -R "$SPARKLE_FW" "$APP/Contents/Frameworks/Sparkle.framework"
+
+# Ensure the executable can resolve @rpath/Sparkle.framework from the bundle.
+if ! otool -l "$APP/Contents/MacOS/$BIN_NAME" | grep -q "@executable_path/../Frameworks"; then
+  install_name_tool -add_rpath "@executable_path/../Frameworks" \
+    "$APP/Contents/MacOS/$BIN_NAME"
+fi
+
+echo "==> Ad-hoc code signing (inside-out: framework, then app)"
+# Sign the embedded framework (and its nested XPC services / helper apps)
+# before the outer app, as required for a valid signature.
+codesign --force --deep --sign - --timestamp=none \
+  "$APP/Contents/Frameworks/Sparkle.framework" \
+  || echo "warning: framework codesign failed (continuing, ad-hoc)"
+codesign --force --deep --sign - --timestamp=none "$APP" \
+  || echo "warning: codesign failed (continuing, ad-hoc)"
 
 echo "==> Done: $ROOT/$APP"

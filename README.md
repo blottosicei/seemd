@@ -50,6 +50,26 @@ Because the release build is ad-hoc signed (not notarized), macOS may block it o
 
 This is only needed once per machine.
 
+## Auto-update (Sparkle)
+
+seemd updates itself with [Sparkle](https://sparkle-project.org/) — **no Apple Developer account required**. Update integrity is guaranteed by an **EdDSA signature** (Sparkle's `SUPublicEDKey`) instead of Apple notarization: the app only installs an update whose archive is signed by the project's private key. The app checks the feed on launch and daily (`SUScheduledCheckInterval`), and **App menu ▸ Check for Updates…** triggers a manual check.
+
+- **Feed:** [`appcast.xml`](appcast.xml) on `main`, served via `raw.githubusercontent.com` (`SUFeedURL`).
+- **Binaries:** `.app` zips uploaded as GitHub Release assets.
+- **Caveat:** because builds are unsigned/un-notarized, the **first launch still needs the Gatekeeper bypass above**. Subsequent in-app updates apply without that step.
+
+### Cutting an auto-update release
+
+The EdDSA private signing key lives in the maintainer's **macOS Keychain** (created once with Sparkle's `generate_keys`; never committed). So Sparkle releases are cut locally:
+
+```sh
+./scripts/release.sh 0.2.0
+```
+
+This bumps the version, builds + bundles `seemd.app` (embedding `Sparkle.framework`), zips it, signs the zip with the Keychain key, regenerates `appcast.xml`, creates the GitHub release with the zip, and commits + pushes `appcast.xml`. macOS will prompt once for Keychain access to the signing key — choose **Always Allow**. Existing users are offered the new version on their next check.
+
+> Builds are **arm64-only** (SwiftPM builds for the host arch); the embedded Sparkle framework is universal but the app itself targets Apple Silicon.
+
 ## CI / Release workflow
 
 - **CI** (`.github/workflows/ci.yml`): runs on every push and pull request — `swift build` + `swift run seemd-selftest`.

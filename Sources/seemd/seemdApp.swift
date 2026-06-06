@@ -4,6 +4,7 @@ import SeemdCore
 @main
 struct SeemdApp: App {
     @State private var themeOverride: ThemeOverride = ThemePreferences.override()
+    @StateObject private var updater = UpdaterViewModel()
 
     var body: some Scene {
         DocumentGroup(newDocument: MarkdownFileDocument()) { config in
@@ -11,6 +12,11 @@ struct SeemdApp: App {
         }
         .windowToolbarStyle(.unified)
         .commands {
+            // Application menu — adds "Check for Updates…" under "About seemd".
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesCommand(updater: updater)
+            }
+
             // View menu.
             CommandGroup(after: .sidebar) {
                 Button("Toggle Sidebar") {
