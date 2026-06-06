@@ -49,8 +49,12 @@ echo "==> Building bundle"
 "$ROOT/scripts/bundle.sh" release
 
 echo "==> Zipping app -> $ZIP_NAME"
+# Start from an empty archive dir so generate_appcast produces a clean
+# single-item feed: leftover zips from prior releases would add stale entries
+# (with this release's URL prefix) and orphan delta files that are never
+# uploaded. One zip in, one item out.
+rm -rf "$ARCHIVE_DIR"
 mkdir -p "$ARCHIVE_DIR"
-rm -f "$ARCHIVE_DIR/$ZIP_NAME"
 ditto -c -k --keepParent "$APP" "$ARCHIVE_DIR/$ZIP_NAME"
 
 echo "==> Generating + signing appcast (EdDSA key from Keychain)"
