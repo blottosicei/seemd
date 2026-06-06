@@ -3,13 +3,13 @@
     <channel>
         <title>seemd</title>
         <item>
-            <title>0.2.0</title>
-            <pubDate>Sat, 06 Jun 2026 11:06:38 +0900</pubDate>
-            <sparkle:version>0.2.0</sparkle:version>
-            <sparkle:shortVersionString>0.2.0</sparkle:shortVersionString>
+            <title>0.3.0</title>
+            <pubDate>Sat, 06 Jun 2026 13:09:13 +0900</pubDate>
+            <sparkle:version>0.3.0</sparkle:version>
+            <sparkle:shortVersionString>0.3.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
             <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
-            <enclosure url="https://github.com/blottosicei/seemd/releases/download/v0.2.0/seemd-0.2.0.zip" length="5374159" type="application/octet-stream" sparkle:edSignature="odB3lSYx4sb+/JjQPGSZW9+BuV1TOqaruGXONt3Qwz+G0LAg18+fXpkS1df8/LzySE0ZkKOlg5+DKL9mo/ZjBw=="/>
+            <enclosure url="https://github.com/blottosicei/seemd/releases/download/v0.3.0/seemd-0.3.0.zip" length="5385810" type="application/octet-stream" sparkle:edSignature="ST48gbjREw5P7fd16K5+oSSt6s+sarayu0gVn9Q0SS37dOaeXytrdmlNUSyDdlr0xmruH1HSljAu+rQohvv6AA=="/>
         </item>
     </channel>
 </rss>
