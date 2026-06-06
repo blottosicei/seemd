@@ -9,6 +9,8 @@ struct RootView: View {
     /// `TableView`s in this window via `.environmentObject`; only tables
     /// observe it, so it cannot trigger block-tree re-renders.
     @StateObject private var tableLayout = TableLayoutStore()
+    /// Injected by `SeemdApp`; drives the sidebar "update available" badge.
+    @EnvironmentObject private var updater: UpdaterViewModel
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isEditing = false
@@ -107,6 +109,11 @@ struct RootView: View {
             } else {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
                     TOCSidebar(model: model)
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            UpdateAvailableBadge()
+                                .animation(.spring(response: 0.35, dampingFraction: 0.8),
+                                           value: updater.updateAvailableVersion)
+                        }
                         .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 360)
                 } detail: {
                     DocumentView(model: model)

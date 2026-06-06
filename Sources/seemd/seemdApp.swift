@@ -9,6 +9,7 @@ struct SeemdApp: App {
     var body: some Scene {
         DocumentGroup(newDocument: MarkdownFileDocument()) { config in
             RootView(document: config.$document, fileURL: config.fileURL)
+                .environmentObject(updater)
         }
         .windowToolbarStyle(.unified)
         .commands {
