@@ -36,6 +36,16 @@ final class UpdaterViewModel: NSObject, ObservableObject, SPUStandardUserDriverD
         controller.updater
             .publisher(for: \.canCheckForUpdates)
             .assign(to: &$canCheckForUpdates)
+
+        // Force a background check right after launch so an available update
+        // surfaces in the sidebar badge without the user opening the menu.
+        // Sparkle recommends calling this immediately after starting the
+        // updater; it routes through the gentle-reminder path (no pop-up),
+        // respects the user's auto-check setting, and ignores the daily
+        // interval throttle for this one launch-time check.
+        if controller.updater.automaticallyChecksForUpdates {
+            controller.updater.checkForUpdatesInBackground()
+        }
     }
 
     /// Begin (or bring forward) the standard update flow. Used by both the
